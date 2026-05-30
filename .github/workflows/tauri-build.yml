@@ -1,6 +1,5 @@
-# macOS / Windows Tauri 앱 동시 빌드 (GitHub Actions matrix)
-# - 수동 실행: Actions 탭 → "Tauri build" → Run workflow
-# - 태그 push (v*): 빌드 + GitHub Release 초안 생성
+# macOS / Windows Tauri 앱 동시 빌드
+# Artifacts: Summary 맨 아래 bundle-windows / bundle-macos-*
 
 name: Tauri build
 
@@ -22,15 +21,12 @@ jobs:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             artifact: macos-arm64
-            bundle_subpath: aarch64-apple-darwin/release/bundle
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             artifact: macos-x64
-            bundle_subpath: x86_64-apple-darwin/release/bundle
           - platform: windows-latest
             args: ''
             artifact: windows
-            bundle_subpath: release/bundle
 
     runs-on: ${{ matrix.platform }}
 
@@ -39,10 +35,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check project layout
+        shell: bash
         run: |
           if [ ! -f study-allocation-app/src-tauri/tauri.conf.json ]; then
-            echo "::error::study-allocation-app 폴더가 저장소 루트에 없습니다."
-            echo "GitHub Code 탭에 study-allocation-app/ 가 보이는지 확인하세요."
+            echo "::error::study-allocation-app/ 가 저장소 루트에 없습니다."
             exit 1
           fi
 
@@ -67,7 +63,7 @@ jobs:
         working-directory: study-allocation-app
         run: npm ci
 
-      - name: Build and release (tag push only)
+      - name: Build app (release on tag)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: tauri-apps/tauri-action@v0
         env:
@@ -76,33 +72,35 @@ jobs:
           projectPath: study-allocation-app
           tagName: v__VERSION__
           releaseName: '나눔교실 프로그램팀 배정 v__VERSION__'
-          releaseBody: |
-            macOS: `.app` (Apple Silicon / Intel)
-            Windows: NSIS 설치 프로그램 (`.exe`)
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
 
-      - name: Build (manual / non-tag)
+      - name: Build app
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: study-allocation-app
           args: ${{ matrix.args }}
 
-      - name: List bundle output (debug)
-        if: always()
+      - name: Locate bundle folder
+        id: bundle
+        shell: bash
         run: |
           ROOT="study-allocation-app/src-tauri/target"
-          echo "=== target tree (bundle only) ==="
-          find "$ROOT" -path '*/bundle/*' 2>/dev/null | head -50 || true
-          BUNDLE="${ROOT}/${{ matrix.bundle_subpath }}"
-          echo "Expected bundle dir: $BUNDLE"
-          ls -laR "$BUNDLE" 2>/dev/null || echo "Bundle directory missing"
+          echo "=== directories under target ==="
+          find "$ROOT" -maxdepth 4 -type d 2>/dev/null | head -40 || true
+          BUNDLE_DIR=$(find "$ROOT" -type d -path '*/release/bundle' 2>/dev/null | head -1)
+          if [ -z "$BUNDLE_DIR" ] || [ -z "$(ls -A "$BUNDLE_DIR" 2>/dev/null)" ]; then
+            echo "::error::release/bundle 폴더가 비어 있거나 없습니다. 위 Build 단계 로그를 확인하세요."
+            exit 1
+          fi
+          echo "Found bundle at: $BUNDLE_DIR"
+          echo "dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.artifact }}
-          path: study-allocation-app/src-tauri/target/${{ matrix.bundle_subpath }}/
+          path: ${{ steps.bundle.outputs.dir }}
           if-no-files-found: error
