@@ -98,6 +98,20 @@ jobs:
           echo "Found bundle at: $BUNDLE_DIR"
           echo "dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
 
+      - name: Ad-hoc sign macOS app
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          BUNDLE_DIR="${{ steps.bundle.outputs.dir }}"
+          APP=$(find "$BUNDLE_DIR/macos" -maxdepth 1 -name '*.app' -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::.app 번들을 찾을 수 없습니다: $BUNDLE_DIR/macos"
+            exit 1
+          fi
+          echo "Ad-hoc signing: $APP"
+          codesign --force --deep --sign - "$APP"
+          codesign -vvv --deep --strict "$APP"
+
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
