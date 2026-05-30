@@ -6,6 +6,9 @@ name: Tauri build
 on:
   workflow_dispatch:
   push:
+    branches:
+      - master
+      - main
     tags:
       - 'v*'
 
@@ -98,7 +101,7 @@ jobs:
           echo "Found bundle at: $BUNDLE_DIR"
           echo "dir=$BUNDLE_DIR" >> "$GITHUB_OUTPUT"
 
-      - name: Ad-hoc sign macOS app
+      - name: Prepare macOS bundle for download
         if: matrix.platform == 'macos-latest'
         shell: bash
         run: |
@@ -108,9 +111,15 @@ jobs:
             echo "::error::.app 번들을 찾을 수 없습니다: $BUNDLE_DIR/macos"
             exit 1
           fi
-          echo "Ad-hoc signing: $APP"
+          BIN=$(find "$APP/Contents/MacOS" -maxdepth 1 -type f | head -1)
+          echo "Re-signing binary: $BIN"
+          codesign --remove-signature "$BIN" 2>/dev/null || true
+          codesign --remove-signature "$APP" 2>/dev/null || true
+          codesign --force --sign - "$BIN"
           codesign --force --deep --sign - "$APP"
           codesign -vvv --deep --strict "$APP"
+          cp study-allocation-app/scripts/install-macos.command "$BUNDLE_DIR/macos/"
+          chmod +x "$BUNDLE_DIR/macos/install-macos.command"
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
